@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Clumsy Guys</title>
+  <meta name="description" content="Tollpatschiges Multiplayer-Party-Spiel im Browser – rennen, springen, Krone holen!" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🫘</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Titan+One&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+  <script type="importmap">{ "imports": { "three": "/vendor/three/three.module.js" } }</script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- Hauptmenü -->
+  <div id="menu" class="screen">
+    <div class="logo"><span class="l1">CLUMSY</span><span class="l2">GUYS</span></div>
+    <div class="menu-actions panel">
+      <label class="field">Dein Name
+        <input id="nameInput" maxlength="16" placeholder="Bohnenname" autocomplete="off" />
+      </label>
+      <button id="btnQuick" class="btn big pink">⚡ Schnell spielen</button>
+      <button id="btnCreate" class="btn blue">🏠 Privaten Raum erstellen</button>
+      <div class="join-row">
+        <input id="codeInput" maxlength="4" placeholder="CODE" autocomplete="off" />
+        <button id="btnJoin" class="btn yellow">Beitreten</button>
+      </div>
+      <div id="menuErr" class="err"></div>
+    </div>
+    <div class="menu-help">WASD laufen · Leertaste springen · Shift/E Hechtsprung · Maus Kamera · Enter Chat · 1–4 Emotes</div>
+  </div>
+
+  <div id="customPanel" class="custom panel hidden">
+    <h3>Dein Look</h3>
+    <div class="opt"><span>Farbe</span><div id="colors" class="swatches"></div></div>
+    <div class="opt"><span>Zweitfarbe</span><div id="colors2" class="swatches"></div></div>
+    <div class="opt"><span>Muster</span><div id="patterns" class="chips"></div></div>
+    <div class="opt"><span>Augen</span><div id="eyes" class="chips"></div></div>
+    <div class="opt"><span>Hut</span><div id="hats" class="chips"></div></div>
+    <div class="opt"><span>Extra</span><div id="accs" class="chips"></div></div>
+    <div class="row"><button id="btnRandom" class="btn small">🎲 Zufall</button><button id="btnLookDone" class="btn small pink hidden">✔ Fertig</button></div>
+  </div>
+
+  <!-- Im Raum -->
+  <div id="hud" class="hidden">
+    <div id="topbar">
+      <div id="roundInfo" class="pill hidden"></div>
+      <div id="timer" class="pill hidden"></div>
+      <div id="goal" class="pill hidden"></div>
+    </div>
+    <div id="roomBox" class="panel">
+      <div class="room-head">
+        <div>
+          <div class="muted">Raumcode</div>
+          <div id="roomCode" class="code">----</div>
+        </div>
+        <button id="btnCopy" class="btn small">🔗 Link kopieren</button>
+      </div>
+      <div id="playerList"></div>
+      <div id="hostControls" class="hidden">
+        <label class="field"><span>Mit Bots auffüllen auf <b id="botVal">8</b> Spieler</span>
+          <input id="botRange" type="range" min="0" max="24" step="1" />
+        </label>
+        <button id="btnStart" class="btn big pink">▶ Spiel starten</button>
+      </div>
+      <div id="waitMsg" class="muted center"></div>
+      <div class="row">
+        <button id="btnLook" class="btn small">👕 Look ändern</button>
+        <button id="btnLeave" class="btn small red">Verlassen</button>
+      </div>
+    </div>
+    <div id="feed"></div>
+    <div id="center"></div>
+    <div id="chat">
+      <div id="chatLog"></div>
+      <input id="chatInput" maxlength="140" placeholder="Enter zum Chatten…" autocomplete="off" />
+    </div>
+    <div id="spectate" class="hidden"></div>
+    <div id="corner">
+      <button id="btnMute" class="btn icon" title="Ton an/aus (M)">🔊</button>
+      <button id="btnEmote" class="btn icon" title="Emotes">😄</button>
+      <div id="emoteMenu" class="hidden">
+        <button data-e="1">👋</button><button data-e="2">💃</button><button data-e="3">🎉</button><button data-e="4">😂</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Overlays -->
+  <div id="intro" class="overlay hidden">
+    <div class="intro-card">
+      <div id="introType" class="intro-type"></div>
+      <div id="introName" class="intro-name"></div>
+      <div id="introDesc" class="intro-desc"></div>
+      <div id="introGoal" class="intro-goal"></div>
+    </div>
+  </div>
+  <div id="results" class="overlay hidden">
+    <div class="res-card">
+      <h2 id="resTitle"></h2>
+      <div class="res-cols">
+        <div><h4>✅ Weiter</h4><div id="resQ" class="res-list"></div></div>
+        <div><h4>❌ Raus</h4><div id="resE" class="res-list"></div></div>
+      </div>
+    </div>
+  </div>
+  <div id="gameover" class="overlay hidden">
+    <div class="go-card">
+      <div class="crown">👑</div>
+      <h1 id="goTitle"></h1>
+      <div id="goSub"></div>
+    </div>
+  </div>
+
+  <div id="touch" class="hidden">
+    <div id="stick"><div id="knob"></div></div>
+    <button id="btnDive" class="tbtn">🤸</button>
+    <button id="btnJump" class="tbtn big">⤒</button>
+    <button id="btnChatT" class="tbtn small">💬</button>
+  </div>
+
+  <div id="loading" class="overlay"><div class="spinner"></div></div>
+
+  <script src="/socket.io/socket.io.min.js"></script>
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>
