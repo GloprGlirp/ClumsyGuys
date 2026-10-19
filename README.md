@@ -9,11 +9,11 @@ Tollpatschiges Multiplayer-Party-Spiel im Browser – inspiriert von Fall Guys. 
 - **Schubsen & Festhalten** wie bei Fall Guys – Bots schubsen auch zurück 😈
 - **Chat** mit Sprechblasen über den Köpfen + Emotes (👋 💃 🎉 😂)
 - **Charakter-Anpassung**: Farben (inkl. freier Farbwahl), 7 Muster, 6 Augen-Stile, 10 Hüte, 6 Extras – wird im Browser gespeichert
-- **4 Level** in einer Show aus mehreren Runden:
-  - 🏃 **Wackelweg** (Rennen) – Fake-Türen, Drehbalken, bewegte Plattformen, Pendelhämmer, rollende Kugeln
-  - 🌀 **Kreiselchaos** (Rennen) – Fließband mit Bumpern, Drehscheiben, Blinkplatten, Balken-Arena
-  - 🪵 **Schwingscheibe** (Überleben) – unteren Balken überspringen, dem oberen ausweichen, Platten fallen weg
-  - 🐝 **Wabenfall** (Finale) – drei Ebenen Waben, die beim Betreten zerbröseln. Letzter gewinnt 👑
+- **20 Minispiele** – vor jeder Runde entscheidet ein **Glücksrad**, was kommt. In einer Show kommt kein Spiel doppelt.
+  - 🏃 **Rennen**: Wackelweg, Kreiselchaos, Hüpfburg, Rutschpartie, Pendelpfad, Blinkbrücke, Kugelberg, Türchaos, Balkenwald, Fließbandfabrik
+  - 🛡️ **Überleben**: Schwingscheibe, Springseil, Kugelhagel, Farbfeld, Hammerhalle, Karussell
+  - 👑 **Finale** (eigenes Glücksrad): Wabenfall, Schrumpfinsel, Kronenkletterei, Mauersturm
+- Ablauf: bis zu 4 Runden, in denen jeweils ein Teil rausfliegt, dann das Finale um die Krone
 - Lobby-Spielwiese mit Sprungpads und Bumpern zum Rumalbern vor dem Start
 - Touch-Steuerung fürs Handy (Joystick + Buttons)
 
@@ -59,7 +59,7 @@ Der Server nutzt automatisch die `PORT`-Variable von Render.
 
 ```
 server/   Express + Socket.IO, Räume, Rundenablauf, Bot-KI
-shared/   Physik, Level-Definitionen, Looks – läuft auf Server UND im Browser
+shared/   Physik, Level (maps.js, maps-extra.js, mapkit.js), Looks – läuft auf Server UND im Browser
 public/   Three.js-Client (Rendering, Charaktere, HUD, Chat, Menü)
 test/     Simulationstest für Physik und Bots
 ```

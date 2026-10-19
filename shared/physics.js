@@ -106,21 +106,22 @@ export class World {
     const dt = t - this.t;
     this.dt = dt > 1e-4 ? dt : 1 / 60;
     this.t = t;
+    const tc = Math.max(0, t); // vor dem Start (Intro) stehen alle Hindernisse still
     const tmp = this._tmp;
     for (const c of this.dynamic) {
       c.px = c.cx; c.py = c.cy; c.pz = c.cz; c.pyaw = c.cyaw;
       tmp.x = c.x; tmp.y = c.y; tmp.z = c.z; tmp.yaw = c.yaw;
-      c.move(t, tmp);
+      c.move(tc, tmp);
       c.cx = tmp.x; c.cy = tmp.y; c.cz = tmp.z; c.cyaw = tmp.yaw;
     }
-    for (const c of this.toggles) c.on = c.active(t);
-    for (const c of this.tiles) c.on = t < c.fallAt && (!c.active || c.active(t));
+    for (const c of this.toggles) c.on = c.active(tc);
+    for (const c of this.tiles) c.on = t < c.fallAt && (!c.active || c.active(tc));
   }
 
   // Zustand eines Kolliders zu einer beliebigen Zeit (für Vorhersage / Rendering)
   stateAt(c, t, out = {}) {
     out.x = c.x; out.y = c.y; out.z = c.z; out.yaw = c.yaw;
-    if (c.move) c.move(t, out);
+    if (c.move) c.move(Math.max(0, t), out);
     return out;
   }
 
@@ -270,7 +271,12 @@ export function stepPlayer(p, inp, world, dt) {
   const control = p.dive > 0 ? 0 : p.stun > 0 ? 0.12 : 1;
   if (control > 0) {
     const sm = inp.speedMul ?? 1;
-    const tx = mx * PHYS.speed * sm, tz = mz * PHYS.speed * sm;
+    let tx = mx * PHYS.speed * sm, tz = mz * PHYS.speed * sm;
+    // In der Luft: Schwung (Sprungpad, Hechtsprung) nicht abbremsen, nur lenken
+    if (!wasGrounded && ml > 0.1) {
+      const hs = Math.hypot(p.vx, p.vz), ts = Math.hypot(tx, tz);
+      if (hs > ts && ts > 0) { tx *= hs / ts; tz *= hs / ts; }
+    }
     const rate = (wasGrounded ? PHYS.accel : PHYS.airAccel) * control * dt;
     if (wasGrounded || ml > 0.1) {
       let dvx = tx - p.vx, dvz = tz - p.vz;
@@ -376,6 +382,7 @@ function land(p, c, top) {
   p.y = top;
   if (c.pad) {
     p.vy = c.pad;
+    if (c.padZ) p.vz = Math.max(p.vz, c.padZ);
     p.events.push('boing');
     p.stun = 0;
     return null;
@@ -397,6 +404,8 @@ function sideHit(p, c, world, nx, nz, push) {
     const k = Math.min(14, c.bounce + Math.max(0, along) * 0.55);
     p.vx = nx * k + cvx * 0.25;
     p.vz = nz * k + cvz * 0.25;
+    const hv = Math.hypot(p.vx, p.vz);
+    if (hv > 12) { p.vx *= 12 / hv; p.vz *= 12 / hv; }
     p.vy = Math.max(p.vy, Math.min(9, 2.5 + k * 0.35));
     p.stun = 0.55; p.dive = 0; p.bumpCd = 0.2;
     p.grounded = false;

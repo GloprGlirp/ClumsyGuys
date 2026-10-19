@@ -1,12 +1,13 @@
 import { World, newPlayer, stepPlayer, resetPlayer, pushApart, animOf, applyPush, tether, pickFront, GRAB } from '../shared/physics.js';
-import { buildMap, MAPS, RACES, SURVIVALS, FINALS, checkpointIndex } from '../shared/maps.js';
+import { buildMap, MAPS, ROUND_GAMES, FINALS, checkpointIndex } from '../shared/maps.js';
 import { mulberry32, shuffle } from '../shared/rng.js';
 import { randomLook, sanitizeLook } from '../shared/looks.js';
 import { BOT_NAMES, createAI, botInput, resetPathIndex } from './bot.js';
 
 export const MAX_HUMANS = 20;
 export const MAX_TOTAL = 24;
-const INTRO_MS = 7000;
+const INTRO_MS = 12000; // 5 s Glücksrad + 4 s Vorstellung + 3 s Countdown
+const MAX_ROUNDS = 4; // Runden vor dem Finale
 const RESULTS_MS = 5500;
 const GAMEOVER_MS = 9000;
 const DT = 1 / 60;
@@ -145,6 +146,7 @@ export class Room {
       round: this.round ? {
         no: this.round.no, type: this.def.type, qualifyCount: this.round.qualifyCount,
         target: this.round.target, total: this.round.total, spawns: this.round.spawns,
+        final: !!MAPS[this.mapId].final, wheel: this.wheel, played: this.played,
       } : null,
       tiles,
     };
@@ -174,7 +176,8 @@ export class Room {
     for (const p of this.humans.values()) p.status = 'playing';
     this.startCount = this.humans.size + this.bots.size;
     this.solo = this.startCount === 1;
-    this.plan = process.env.CG_PLAN ? process.env.CG_PLAN.split(',') : [...shuffle(RACES, rnd), ...shuffle(SURVIVALS, rnd), FINALS[0]];
+    this.played = [];
+    this.forced = process.env.CG_PLAN ? process.env.CG_PLAN.split(',') : null;
     this.roundNo = 0;
     this.autoStartAt = 0;
     this.sys('Das Spiel beginnt! Viel Glück 🍀');
@@ -185,12 +188,21 @@ export class Room {
     this.clearGrabs();
     const alive = this.participants();
     for (const e of alive) e.status = 'playing';
-    let mapId = this.plan.shift();
-    if (!this.solo && alive.length <= 2 && MAPS[mapId].type !== 'final') mapId = FINALS[0];
-    const meta = MAPS[mapId];
     const n = alive.length;
+    // Glücksrad: zufälliges Spiel, das in dieser Show noch nicht dran war
+    const nonFinal = this.played.filter((id) => !MAPS[id].final).length;
+    const finalNow = nonFinal >= MAX_ROUNDS || (n <= 4 && nonFinal >= 2);
+    const pool = (finalNow ? FINALS : ROUND_GAMES).filter((id) => !this.played.includes(id));
+    let mapId = pool[Math.floor(Math.random() * pool.length)];
+    if (this.forced && this.forced.length) mapId = this.forced.shift();
+    this.played.push(mapId);
+    this.lastRound = finalNow || MAPS[mapId].final;
+    const wheelOpts = pool.includes(mapId) ? pool : [mapId, ...pool];
+    this.wheel = { options: shuffle(wheelOpts, Math.random).slice(0, 16), pick: mapId, final: !!MAPS[mapId].final };
+    if (!this.wheel.options.includes(mapId)) this.wheel.options[0] = mapId;
+    const meta = MAPS[mapId];
     let qualifyCount = 0, target = 0;
-    if (meta.type === 'race') qualifyCount = n >= 4 ? Math.ceil(n * 0.6) : n;
+    if (meta.type === 'race') qualifyCount = meta.final ? 1 : n >= 4 ? Math.ceil(n * 0.6) : n;
     else if (meta.type === 'survival') target = this.solo ? 0 : n >= 4 ? Math.ceil(n * 0.5) : Math.max(1, n - 1);
     else target = this.solo ? 0 : 1;
 
@@ -277,9 +289,9 @@ export class Room {
     }
 
     this.phase = 'results';
-    const isFinal = type === 'final';
+    const isFinal = !!MAPS[this.mapId].final;
     const remaining = this.participants().filter((e) => e.status === 'qualified');
-    let over = isFinal || remaining.length === 0 || (!this.solo && remaining.length <= 1) || (this.solo && this.plan.length === 0);
+    let over = isFinal || remaining.length === 0 || (!this.solo && remaining.length <= 1) || (this.solo && this.lastRound);
     let winners = remaining;
     if (!over && !remaining.some((e) => !e.bot)) {
       // Keine Menschen mehr im Spiel: Show abkürzen, ein Bot gewinnt

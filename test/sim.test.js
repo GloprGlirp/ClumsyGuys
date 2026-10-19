@@ -1,6 +1,6 @@
 // Simuliert Bots auf allen Maps ohne Netzwerk und prüft, ob die Level spielbar sind.
 import { World, newPlayer, stepPlayer, resetPlayer, pushApart } from '../shared/physics.js';
-import { buildMap, checkpointIndex } from '../shared/maps.js';
+import { buildMap, checkpointIndex, GAMES, MAPS } from '../shared/maps.js';
 import { createAI, botInput, resetPathIndex } from '../server/bot.js';
 import { mulberry32 } from '../shared/rng.js';
 
@@ -102,10 +102,11 @@ function simulate(mapId, seed, nBots, seconds) {
   if (above.length) failed = true;
 }
 
-for (const seed of [11, 22]) {
-  simulate('wackelweg', seed, 20, 150);
-  simulate('kreiselchaos', seed, 20, 150);
-  simulate('schwingscheibe', seed, 20, 75);
-  simulate('wabenfall', seed, 20, 180);
+const slow = [];
+for (const id of GAMES) {
+  const meta = MAPS[id];
+  const n = meta.final ? 6 : meta.type === 'race' ? 16 : 12;
+  const r = simulate(id, 11, n, meta.timeLimit);
+  if (meta.type === 'race' && r.finished === 0) { console.error('  -> FEHLER: kein Bot im Ziel!'); failed = true; }
 }
 if (failed) process.exit(1);

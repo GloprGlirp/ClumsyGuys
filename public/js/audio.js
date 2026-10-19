@@ -33,6 +33,7 @@ export const sfx = {
   pop: () => tone(900, 0.06, 'sine', 0.06, 200),
   whoosh: () => tone(500, 0.12, 'triangle', 0.08, -300),
   grab: () => { tone(300, 0.08, 'square', 0.05, 100); tone(450, 0.1, 'sine', 0.06); },
+  tick: () => tone(1200, 0.025, 'square', 0.035),
   click: () => tone(660, 0.05, 'triangle', 0.06),
   count: () => tone(520, 0.18, 'square', 0.06),
   go: () => { tone(780, 0.35, 'square', 0.07); tone(1040, 0.35, 'sine', 0.06); },

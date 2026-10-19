@@ -85,13 +85,24 @@ function materialFor(c, map, idx) {
     case 'hammer': return M('#ffffff', { map: canvasTex('hammer', 128, 128, stripes('#ff7a1a', '#ffe0c2', 6), [1, 1]) });
     case 'platform': return M('#ffffff', { map: canvasTex('plat', 128, 128, tileTop('#5aa9ff', '#2f6fd1'), [1, 1]) });
     case 'ball': return M('#ffffff', { map: canvasTex('ball', 128, 64, stripes('#ff8a3d', '#ffffff', 6, false), [1, 1]), roughness: 0.3 });
-    case 'conveyor': return M('#ffffff', { map: canvasTex('conv', 128, 128, arrows, [2, 6]) });
+    case 'conveyor': {
+      const base = canvasTex('conv', 128, 128, arrows, [2, 6]);
+      const [cx, cz] = c.conveyor;
+      if (cz < 0 && !cx) return M('#ffffff', { map: base });
+      const t = base.clone();
+      t.center.set(0.5, 0.5);
+      t.rotation = cx > 0 ? -Math.PI / 2 : cx < 0 ? Math.PI / 2 : Math.PI;
+      t.repeat.set(cx ? 6 : 2, cx ? 2 : 6);
+      t.needsUpdate = true;
+      return M('#ffffff', { map: t });
+    }
     case 'bumper': return M('#ffd23f', { emissive: '#ff9900', emissiveIntensity: 0.15, roughness: 0.3 });
     case 'pad': return M('#7ed957', { emissive: '#3c9a00', emissiveIntensity: 0.3 });
     case 'blink': return M('#ff9be0', { emissive: '#ff4fc1', emissiveIntensity: 0.15 });
     case 'stairs': return M(idx % 2 ? '#ffd1ec' : '#c9f1ff');
     case 'block': return M(['#c9f1ff', '#fff1b8', '#ffd1ec'][idx % 3]);
     case 'ramp': return M('#ffffff', { map: canvasTex('ramp', 128, 128, stripes('#ffe48a', '#fff6cf', 8, false), [1, 4]) });
+    case 'colortile': return M(c.color, { roughness: 0.35 });
     case 'tile': return M('#ffffff', { map: canvasTex('tile', 128, 128, tileTop('#64e3c4', '#2bb594'), [1, 1]) });
     default: return M('#e9e4ff');
   }
@@ -110,6 +121,8 @@ export class Level {
     this.tiles = [];
     this.doors = [];
     this.ropes = [];
+    this.spinners = [];
+    this.signals = [];
     this.hexInst = null;
     this.tmp = {};
     this.build();
@@ -127,7 +140,7 @@ export class Level {
       else if (c.type === 'ramp') geo = wedgeGeometry(c);
       else if (c.type === 'sphere') geo = new THREE.SphereGeometry(c.r, 24, 16);
       const mat = materialFor(c, def, idx++);
-      const mesh = new THREE.Mesh(geo, c.kind === 'blink' || c.kind === 'tile' ? mat.clone() : mat);
+      const mesh = new THREE.Mesh(geo, c.kind === 'blink' || c.kind === 'tile' || c.kind === 'colortile' ? mat.clone() : mat);
       mesh.position.set(c.x, c.type === 'ramp' ? 0 : c.y, c.z);
       mesh.rotation.y = c.yaw || 0;
       mesh.castShadow = c.kind !== 'floor' && c.kind !== 'start' && c.kind !== 'finish';
@@ -211,16 +224,48 @@ export class Level {
       this.group.add(mesh);
     } else if (d.type === 'gantry') {
       const mm = M('#d6ccff');
-      for (const s of [-1, 1]) {
+      const alongX = d.axis !== 'z';
+      for (const sgn of [-1, 1]) {
         const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, d.h, 0.6), mm);
-        p.position.set(s * (d.w / 2 + 0.3), d.h / 2 - 0.5, d.z);
+        const off = sgn * (d.w / 2 + 0.3);
+        p.position.set(d.x + (alongX ? off : 0), d.h / 2 - 0.5, d.z + (alongX ? 0 : off));
         p.castShadow = true;
         this.group.add(p);
       }
-      const top = new THREE.Mesh(new THREE.BoxGeometry(d.w + 1.2, 0.6, 0.8), mm);
-      top.position.set(0, 9.6, d.z);
+      const top = new THREE.Mesh(new THREE.BoxGeometry(alongX ? d.w + 1.2 : 0.8, 0.6, alongX ? 0.8 : d.w + 1.2), mm);
+      top.position.set(d.x, d.h - 0.4, d.z);
       top.castShadow = true;
       this.group.add(top);
+    } else if (d.type === 'crown') {
+      const g = new THREE.Group();
+      const gold = M('#ffcc33', { metalness: 0.6, roughness: 0.25, emissive: '#7a5200', emissiveIntensity: 0.35 });
+      g.add(new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.35, 0.8, 24, 1, true), gold));
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        const sp = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.9, 8), gold);
+        sp.position.set(Math.cos(a) * 1.4, 0.8, Math.sin(a) * 1.4);
+        g.add(sp);
+        const gem = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), M(['#ff3d7f', '#4cc9f0', '#7ed957'][i % 3], { roughness: 0.2 }));
+        gem.position.set(Math.cos(a) * 1.4, 1.3, Math.sin(a) * 1.4);
+        g.add(gem);
+      }
+      g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      g.position.set(d.x, d.y, d.z);
+      this.group.add(g);
+      this.spinners.push(g);
+    } else if (d.type === 'signal') {
+      const g = new THREE.Group();
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(8.6, 3.2, 0.4), M('#2a2342'));
+      g.add(frame);
+      const panels = [-2, 2].map((x) => {
+        const p = new THREE.Mesh(new THREE.BoxGeometry(3.6, 2.6, 0.6), M('#ffffff', { emissive: '#ffffff', emissiveIntensity: 0.2 }));
+        p.position.set(x, 0, 0);
+        g.add(p);
+        return p;
+      });
+      g.position.set(d.x, d.y, d.z);
+      this.group.add(g);
+      this.signals.push({ d, g, panels });
     }
   }
 
@@ -240,7 +285,8 @@ export class Level {
     return false;
   }
 
-  update(t, world, dt) {
+  update(tRaw, world, dt) {
+    const t = Math.max(0, tRaw); // vor dem Start ruhen Hindernisse (wie in der Physik)
     const st = this.tmp;
     for (const c of this.dyn) {
       world.stateAt(c, t, st);
@@ -250,23 +296,42 @@ export class Level {
       if (c.active) mesh.visible = c.active(t);
       if (c.kind === 'ball') { mesh.rotation.y = 0; mesh.rotation.x = st.z / c.r; }
       if (c.pivot) {
-        const [px, py] = c.pivot;
-        const th = Math.atan2(st.x - px, py - st.y);
-        mesh.rotation.z = th;
+        const [px, py, pz] = c.pivot;
+        if (c.swing === 'z') mesh.rotation.x = -Math.atan2(st.z - pz, py - st.y);
+        else mesh.rotation.z = Math.atan2(st.x - px, py - st.y);
       }
     }
+    const up = this._up || (this._up = new THREE.Vector3(0, 1, 0));
+    const dir = this._dir || (this._dir = new THREE.Vector3());
     for (const { c, rope } of this.ropes) {
       const m = c.mesh.position;
       const [px, py, pz] = c.pivot;
-      const dx = m.x - px, dy = m.y - py;
-      const len = Math.hypot(dx, dy);
-      rope.position.set((m.x + px) / 2, (m.y + py) / 2, pz);
+      dir.set(m.x - px, m.y - py, m.z - pz);
+      const len = dir.length();
+      rope.position.set((m.x + px) / 2, (m.y + py) / 2, (m.z + pz) / 2);
       rope.scale.y = len;
-      rope.rotation.z = Math.atan2(dx, -dy) + Math.PI;
+      rope.quaternion.setFromUnitVectors(up, dir.divideScalar(len || 1));
+    }
+    for (const g of this.spinners) { g.rotation.y = t * 0.8; g.position.y = (g.userData.y ??= g.position.y) + Math.sin(t * 2) * 0.3; }
+    for (const s of this.signals) {
+      const cols = s.d.colorsAt(t);
+      s.panels.forEach((p, i) => {
+        const col = cols ? cols[Math.min(i, cols.length - 1)] : '#ffffff';
+        p.material.color.set(col);
+        p.material.emissive.set(col);
+        p.material.emissiveIntensity = cols ? (Math.sin(t * 14) > 0 ? 0.7 : 0.25) : 0.15;
+      });
+      s.g.rotation.y = t * 0.35;
     }
     for (const c of this.toggles) {
       const on = c.active(t);
       c.mesh.visible = on;
+      if (c.warnAt && on) {
+        const w = c.warnAt(t);
+        c.mesh.material.emissive.set(w && Math.sin(t * 22) > 0 ? '#ffffff' : '#000000');
+        c.mesh.material.emissiveIntensity = w ? 0.6 : 0;
+        c.mesh.position.y = c.y + (w ? Math.sin(t * 40) * 0.04 : 0);
+      }
       if (c.blink && on) {
         const [P, ON, ph] = c.blink;
         const left = ON - (((t + ph) % P + P) % P);

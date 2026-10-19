@@ -67,6 +67,34 @@ function danger(world, p, t, look, ax = p.x, az = p.z) {
   return null;
 }
 
+// Steht man an (x,z) zur Zeit tf noch sicher auf festem Boden?
+const sArr = [];
+export function safeAt(world, x, z, y, tf) {
+  for (const c of world.query(x, z, 0.1, sArr)) {
+    if (c.bounce || c.noStand || c.pad || c.move) continue;
+    if (c.tile && c.fallAt - tf < 0) continue;
+    if (c.active && !c.active(tf)) continue;
+    const top = surfaceTop(c, x, z);
+    if (top !== null && Math.abs(top - y) < 1.6) return true;
+  }
+  // bewegte Plattformen (z. B. Karussell) zählen, wenn man jetzt drauf landen könnte
+  for (const c of world.dynamic) {
+    if (c.bounce || c.noStand || (c.active && !c.active(tf))) continue;
+    const top = surfaceTop(c, x, z);
+    if (top !== null && Math.abs(top - y) < 1.6) return true;
+  }
+  return false;
+}
+
+// Liegt (x,z) in der Bahn eines Pendelhammers?
+function inLane(world, x, z) {
+  for (const c of world.dynamic) {
+    if (!c.pivot) continue;
+    if (c.swing === 'z' ? Math.abs(x - c.pivot[0]) < 2.6 : Math.abs(z - c.pivot[2]) < 2.6) return true;
+  }
+  return false;
+}
+
 // Finale (Wabenfall): nur über frische Waben laufen, über Löcher springen
 const qArr = [];
 function freshTile(world, x, z, y, t) {
@@ -124,8 +152,9 @@ export function botInput(b, world, def, t, dt) {
   const inp = { mx: 0, mz: 0, jump: false, dive: false };
   ai.jumpCd = Math.max(0, ai.jumpCd - dt);
   let tx = p.x, tz = p.z;
+  const mode = def.ai || (def.type === 'final' ? 'survival' : def.type);
 
-  if (def.type === 'race') {
+  if (mode === 'race') {
     const wp = (def.botPath || [])[ai.i];
     if (!wp) { tz = p.z + 10; }
     else if (wp.col) {
@@ -145,25 +174,53 @@ export function botInput(b, world, def, t, dt) {
       tx = wp.x + ai.off * (wp.s || 0); tz = wp.z;
       if (Math.hypot(tx - p.x, tz - p.z) < 1.5 || p.z > tz + 0.5) { ai.i++; ai.off = rnd() * 2 - 1; }
     }
-  } else if (def.type === 'survival' || def.type === 'lobby') {
+  } else if (mode === 'survival') {
     ai.retargetT -= dt;
     const tg = ai.target;
-    const bad = !tg || ai.retargetT <= 0 || Math.hypot(tg.x - p.x, tg.z - p.z) < 1.2 || (tg.c && (!tg.c.on || tg.c.fallAt - t < 3));
-    if (bad) {
+    const bad = !tg || ai.retargetT <= 0 || Math.hypot(tg.x - p.x, tg.z - p.z) < 1.2 || !safeAt(world, tg.x, tg.z, p.y, t + 2.5);
+    if (bad && (p.grounded || !tg)) {
+      const R = def.arenaR || 10;
       let best = null, bd = Infinity;
-      const tiles = world.tiles.length ? world.tiles : world.cols;
-      for (let k = 0; k < 7; k++) {
-        const c = tiles[Math.floor(rnd() * tiles.length)];
-        if (!c.on || (c.tile && c.fallAt - t < 4)) continue;
-        if (Math.hypot(c.x, c.z) > 11.5) continue;
-        const d = Math.hypot(c.x - p.x, c.z - p.z);
-        if (d < bd) { bd = d; best = c; }
+      for (let k = 0; k < 14; k++) {
+        const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * R;
+        const x = Math.sin(a) * r, z = Math.cos(a) * r;
+        if (!safeAt(world, x, z, p.y, t + 3)) continue;
+        const d = Math.hypot(x - p.x, z - p.z) + rnd() * 3 + (inLane(world, x, z) ? 50 : 0);
+        if (d < bd) { bd = d; best = { x, z }; }
       }
-      ai.target = best ? { x: best.x, z: best.z, c: best } : { x: 0, z: 4 };
-      ai.retargetT = 2 + rnd() * 4;
+      ai.target = best || { x: 0, z: 0 };
+      ai.retargetT = 1.5 + rnd() * 3;
     }
     tx = ai.target.x; tz = ai.target.z;
-  } else if (def.type === 'final') {
+  } else if (mode === 'walls') {
+    // Mauersturm: zur Lücke der nächsten heranrasenden Wand laufen
+    let best = null, bd = Infinity;
+    for (const c of world.dynamic) {
+      if (!c.on || c.kind !== 'wall') continue;
+      const alongZ = Math.abs(Math.sin(c.cyaw)) < 0.5;
+      const along = alongZ ? c.cz - p.z : c.cx - p.x;
+      const vel = alongZ ? c.cz - c.pz : c.cx - c.px;
+      if (along * vel >= 0 || Math.abs(along) > 12) continue; // entfernt sich
+      if (Math.abs(along) < bd) { bd = Math.abs(along); best = { c, alongZ }; }
+    }
+    if (best) {
+      const { c, alongZ } = best;
+      const wallPos = alongZ ? c.cz : c.cx;
+      const blocked = new Set();
+      for (const o of world.dynamic) {
+        if (!o.on || o.kind !== 'wall') continue;
+        if (Math.abs((alongZ ? o.cz : o.cx) - wallPos) > 1) continue;
+        blocked.add(Math.round(alongZ ? o.cx : o.cz));
+      }
+      let free = 0, fd = Infinity;
+      for (const off of [-8, -4, 0, 4, 8]) {
+        if (blocked.has(off)) continue;
+        const d = Math.abs(off - (alongZ ? p.x : p.z));
+        if (d < fd) { fd = d; free = off; }
+      }
+      if (alongZ) { tx = free; tz = p.z * 0.9; } else { tz = free; tx = p.x * 0.9; }
+    } else { tx = p.x * 0.5; tz = p.z * 0.5; }
+  } else if (mode === 'hex') {
     return finalInput(b, world, t, dt, inp);
   }
 
@@ -184,13 +241,13 @@ export function botInput(b, world, def, t, dt) {
         const gy = world.groundAt(p.x + dx * d, p.z + dz * d, p.y + 1.6, p.y - 3);
         if (gy !== null) { canLand = true; break; }
       }
-      if (canLand && (def.type === 'race' || def.type === 'lobby')) {
+      if (canLand && mode === 'race') {
         if (rnd() < 0.3 + ai.skill * 0.5) inp.jump = true;
         ai.waitT = 0;
       } else {
         ai.waitT += dt;
-        if (def.type === 'race' && ai.waitT > 4 + rnd()) { inp.jump = true; ai.waitT = 0; }
-        else { inp.mx = -dx * 0.25; inp.mz = -dz * 0.25; if (def.type !== 'race') ai.retargetT = 0; }
+        if (mode === 'race' && ai.waitT > 4 + rnd()) { inp.jump = true; ai.waitT = 0; }
+        else { inp.mx = -dx * 0.25; inp.mz = -dz * 0.25; if (mode !== 'race') ai.retargetT = 0; }
       }
     }
     // Niedriges Hindernis voraus?
@@ -204,7 +261,7 @@ export function botInput(b, world, def, t, dt) {
     const dg = danger(world, p, t, 0.22 + (1 - ai.skill) * 0.08);
     if (dg === 'jump' && rnd() < 0.35 + ai.skill * 0.6) { inp.jump = true; ai.jumpCd = 0.5; }
     else if (dg === 'block' && rnd() < ai.skill) { inp.mx = -inp.mx; inp.mz = -inp.mz; }
-    else if (def.type === 'race' && l > 0.3) {
+    else if (mode === 'race' && l > 0.3) {
       const da = danger(world, p, t, 0.5, p.x + dx * 1.8, p.z + dz * 1.8);
       if (da === 'block' && rnd() < ai.skill) { inp.mx = 0; inp.mz = 0; }
     }
@@ -216,7 +273,7 @@ export function botInput(b, world, def, t, dt) {
     const moved = Math.hypot(p.x - ai.lastX, p.z - ai.lastZ);
     if (moved < 0.7 && l > 1.5 && ai.waitT === 0) {
       const wp = (def.botPath || [])[ai.i];
-      if (def.type === 'race' && wp && wp.choices) {
+      if (mode === 'race' && wp && wp.choices) {
         let n = ai.choice;
         while (n === ai.choice && wp.choices.length > 1) n = Math.floor(rnd() * wp.choices.length);
         ai.choice = n;
@@ -230,6 +287,6 @@ export function botInput(b, world, def, t, dt) {
   }
 
   // Ab und zu ein Hechtsprung Richtung Ziel
-  if (def.type === 'race' && p.grounded && l > 6 && rnd() < 0.002) inp.dive = true;
+  if (mode === 'race' && p.grounded && l > 6 && rnd() < 0.002) inp.dive = true;
   return inp;
 }

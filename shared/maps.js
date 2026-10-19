@@ -1,40 +1,7 @@
 // Alle Level. build(seed) muss auf Server und Client exakt dasselbe liefern.
 import { mulberry32, hash2, shuffle } from './rng.js';
-
-function maker() {
-  let n = 0;
-  const cols = [];
-  const add = (type, o) => {
-    const c = { id: 'c' + n++, type, ...o };
-    cols.push(c);
-    return c;
-  };
-  return {
-    cols,
-    box: (x, y, z, w, h, d, o = {}) => add('box', { x, y, z, hx: w / 2, hy: h / 2, hz: d / 2, ...o }),
-    cyl: (x, y, z, r, h, o = {}) => add('cyl', { x, y, z, r, h: h / 2, ...o }),
-    ramp: (x, z, w, d, y0, y1, o = {}) => add('ramp', { x, y: (y0 + y1) / 2, z, hx: w / 2, hz: d / 2, y0, y1, ...o }),
-    sphere: (x, y, z, r, o = {}) => add('sphere', { x, y, z, r, ...o }),
-  };
-}
-
-const mod = (a, b) => ((a % b) + b) % b;
-
-function gridSpawns(cols, rows, x0, dx, z0, dz, y = 0.2) {
-  const s = [];
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) s.push([x0 + c * dx, y, z0 + r * dz, 0]);
-  return s;
-}
-
-function ringSpawns(n, rad, y = 0.2, cx = 0, cz = 0) {
-  const s = [];
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    const x = cx + Math.sin(a) * rad, z = cz + Math.cos(a) * rad;
-    s.push([x, y, z, Math.atan2(cx - x, cz - z)]);
-  }
-  return s;
-}
+import { maker, mod, gridSpawns, ringSpawns } from './mapkit.js';
+import { EXTRA_MAPS } from './maps-extra.js';
 
 // ------------------------------------------------------------------ Lobby
 function buildLobby() {
@@ -262,15 +229,20 @@ function buildWabenfall() {
 
 export const MAPS = {
   lobby: { id: 'lobby', name: 'Spielwiese', type: 'lobby', desc: 'Lauf rum, chatte und warte auf den Start!', killY: -12, slimeY: -8, build: buildLobby, sky: ['#7fd3ff', '#d9f3ff'], slime: '#ff7ad9' },
-  wackelweg: { id: 'wackelweg', name: 'Wackelweg', type: 'race', desc: 'Finde die echten Türen, spring über den Balken, weich den Hämmern aus – ab ins Ziel!', timeLimit: 150, killY: -12, slimeY: -8, build: buildWackelweg, sky: ['#6ec8ff', '#ffe3f5'], slime: '#ff6fcf' },
-  kreiselchaos: { id: 'kreiselchaos', name: 'Kreiselchaos', type: 'race', desc: 'Fließband, Drehscheiben und Blinkplatten. Schnell ins Ziel!', timeLimit: 150, killY: -12, slimeY: -8, build: buildKreiselchaos, sky: ['#ffb36b', '#fff1c9'], slime: '#9b5dff' },
-  schwingscheibe: { id: 'schwingscheibe', name: 'Schwingscheibe', type: 'survival', desc: 'Spring über den unteren Balken – aber nicht in den oberen! Die Platten fallen nach und nach.', timeLimit: 75, killY: -12, slimeY: -9, build: buildSchwingscheibe, sky: ['#8a7dff', '#ffd1f0'], slime: '#3dffb1' },
-  wabenfall: { id: 'wabenfall', name: 'Wabenfall', type: 'final', desc: 'Waben fallen, sobald du drauftrittst. Wer als Letzter steht, gewinnt die Krone!', timeLimit: 180, killY: -26, slimeY: -23, build: buildWabenfall, sky: ['#ff8fb8', '#ffe9b0'], slime: '#ff3d7f' },
+  wackelweg: { id: 'wackelweg', name: 'Wackelweg', type: 'race', icon: '🚧', desc: 'Finde die echten Türen, spring über den Balken, weich den Hämmern aus – ab ins Ziel!', timeLimit: 150, killY: -12, slimeY: -8, build: buildWackelweg, sky: ['#6ec8ff', '#ffe3f5'], slime: '#ff6fcf' },
+  kreiselchaos: { id: 'kreiselchaos', name: 'Kreiselchaos', type: 'race', icon: '🎡', desc: 'Fließband, Drehscheiben und Blinkplatten. Schnell ins Ziel!', timeLimit: 150, killY: -12, slimeY: -8, build: buildKreiselchaos, sky: ['#ffb36b', '#fff1c9'], slime: '#9b5dff' },
+  schwingscheibe: { id: 'schwingscheibe', name: 'Schwingscheibe', type: 'survival', icon: '🪵', arenaR: 11, desc: 'Spring über den unteren Balken – aber nicht in den oberen! Die Platten fallen nach und nach.', timeLimit: 75, killY: -12, slimeY: -9, build: buildSchwingscheibe, sky: ['#8a7dff', '#ffd1f0'], slime: '#3dffb1' },
+  wabenfall: { id: 'wabenfall', name: 'Wabenfall', type: 'final', final: true, ai: 'hex', icon: '🐝', desc: 'Waben fallen, sobald du drauftrittst. Wer als Letzter steht, gewinnt die Krone!', timeLimit: 180, killY: -26, slimeY: -23, build: buildWabenfall, sky: ['#ff8fb8', '#ffe9b0'], slime: '#ff3d7f' },
 };
 
-export const RACES = ['wackelweg', 'kreiselchaos'];
-export const SURVIVALS = ['schwingscheibe'];
-export const FINALS = ['wabenfall'];
+Object.assign(MAPS, EXTRA_MAPS);
+
+// Alle spielbaren Minispiele (ohne Lobby)
+export const GAMES = Object.keys(MAPS).filter((k) => k !== 'lobby');
+export const FINALS = GAMES.filter((k) => MAPS[k].final);
+export const ROUND_GAMES = GAMES.filter((k) => !MAPS[k].final);
+export const RACES = ROUND_GAMES.filter((k) => MAPS[k].type === 'race');
+export const SURVIVALS = ROUND_GAMES.filter((k) => MAPS[k].type === 'survival');
 
 export function buildMap(id, seed) {
   const meta = MAPS[id];

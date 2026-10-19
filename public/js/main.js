@@ -4,6 +4,7 @@ import { createScene } from './scene.js';
 import { Character } from './character.js';
 import { Level } from './level.js';
 import { Input } from './input.js';
+import { Wheel } from './wheel.js';
 import { sfx, toggleMute, isMuted, unlockAudio } from './audio.js';
 import { World, newPlayer, stepPlayer, resetPlayer, pushApart, animOf, applyPush, tether, pickFront, GRAB } from '/shared/physics.js';
 import { buildMap, MAPS, checkpointIndex } from '/shared/maps.js';
@@ -13,11 +14,14 @@ const $ = (id) => document.getElementById(id);
 const DT = 1 / 60;
 const INTERP_MS = 110;
 const TYPE_LABEL = { race: 'RENNEN', survival: 'ÜBERLEBEN', final: 'FINALE', lobby: 'LOBBY' };
+const WHEEL_END = -7; // Rundenzeit, zu der das Glücksrad verschwindet
+const typeLabel = (meta) => (meta.final ? 'FINALE' : TYPE_LABEL[meta.type]);
 const EMOJI = { 1: '👋', 2: '💃', 3: '🎉', 4: '😂' };
 
 const canvas = $('game');
 const G = createScene(canvas);
 const input = new Input(canvas);
+const wheel = new Wheel($('wheel'));
 const socket = io({ transports: ['websocket', 'polling'] });
 
 // ------------------------------------------------------------------ Profil
@@ -204,7 +208,8 @@ function toMenu() {
   $('customPanel').classList.remove('hidden');
   $('btnLookDone').classList.add('hidden');
   $('hud').classList.add('hidden');
-  for (const id of ['intro', 'results', 'gameover']) $(id).classList.add('hidden');
+  for (const id of ['intro', 'results', 'gameover', 'signal']) $(id).classList.add('hidden');
+  wheel.hide();
   clearEntities();
   if (S.meChar) S.meChar.group.visible = false;
   input.wantLock = false;
@@ -419,6 +424,9 @@ function loadMap(p) {
     resetPlayer(S.me, s[0] + (Math.random() - 0.5) * 2, s[1], s[2], s[3]);
     S.active = true;
     S.status.clear();
+    S.wheelOn = false;
+    wheel.hide();
+    $('signal').classList.add('hidden');
     $('intro').classList.add('hidden');
     for (const id of ['roundInfo', 'timer', 'goal']) $(id).classList.add('hidden');
     input.camYaw = S.me.yaw + Math.PI;
@@ -433,13 +441,17 @@ function loadMap(p) {
       input.camPitch = 0.3;
     }
     const meta = MAPS[p.mapId];
-    $('introType').textContent = `RUNDE ${p.round.no} · ${TYPE_LABEL[meta.type]}`;
+    $('introType').textContent = `RUNDE ${p.round.no} · ${typeLabel(meta)}`;
     $('introName').textContent = meta.name;
     $('introDesc').textContent = meta.desc;
     $('introGoal').textContent = goalText(true);
-    $('intro').classList.toggle('hidden', roundTime() > -3);
-    $('roundInfo').textContent = `${TYPE_LABEL[meta.type]} · ${meta.name}`;
-    for (const id of ['roundInfo', 'timer', 'goal']) $(id).classList.remove('hidden');
+    const rt0 = roundTime();
+    S.wheelOn = !!p.round.wheel && rt0 < WHEEL_END - 0.3;
+    if (S.wheelOn) wheel.spin(p.round.wheel, p.round.no, Math.max(0, (rt0 + 12) * 1000));
+    else wheel.hide();
+    $('intro').classList.toggle('hidden', S.wheelOn || rt0 > -3);
+    $('roundInfo').textContent = `${typeLabel(meta)} · ${meta.name}`;
+    for (const id of ['roundInfo', 'timer', 'goal']) $(id).classList.toggle('hidden', S.wheelOn);
   }
   if (S.meChar) S.meChar.group.visible = S.active;
   S.prev = { x: S.me.x, y: S.me.y, z: S.me.z, yaw: S.me.yaw };
@@ -451,6 +463,7 @@ function goalText(intro = false) {
   const r = S.round;
   if (!r) return '';
   const type = S.def.type;
+  if (type === 'race' && r.final) return intro ? 'Wer zuerst oben ist, gewinnt die Krone! 👑' : '👑 Erster gewinnt';
   if (type === 'race') return intro ? `Die ersten ${r.qualifyCount} von ${r.total} kommen weiter!` : `✅ ${countStatus('qualified')} / ${r.qualifyCount}`;
   const alive = countStatus('playing');
   if (type === 'survival') return intro ? (r.target ? `Überlebe, bis nur noch ${r.target} übrig sind!` : 'Überlebe bis zum Schluss!') : `👥 ${alive} übrig${r.target ? ` · Ziel ${r.target}` : ''}`;
@@ -761,7 +774,7 @@ function updateCamera(dt, focus) {
   }
   if (inGame() && rt < -3) {
     // Kamerafahrt über die Strecke
-    const k = Math.min(1, (rt + 7) / 4);
+    const k = Math.max(0, Math.min(1, (rt + 7) / 4));
     const def = S.def;
     if (def.type === 'race') {
       const z = (def.finishZ + 10) * (1 - k) - 8;
@@ -799,7 +812,16 @@ function updateHud() {
   }
   if (!inGame()) return;
   const rt = roundTime();
+  if (S.wheelOn && rt >= WHEEL_END) {
+    S.wheelOn = false;
+    wheel.hide();
+    for (const id of ['roundInfo', 'timer', 'goal']) $(id).classList.remove('hidden');
+    if (rt < -3) $('intro').classList.remove('hidden');
+  }
   if (rt >= -3 && !S.introHidden) { S.introHidden = true; $('intro').classList.add('hidden'); }
+  const sig = S.def.signalText ? S.def.signalText(rt) : null;
+  $('signal').classList.toggle('hidden', !sig || rt < 0);
+  if (sig) $('signal').textContent = '⚠️ ' + sig;
   const left = Math.max(0, (S.endAt - now()) / 1000);
   const tm = rt < 0 ? (S.endAt - S.startAt) / 1000 : left;
   $('timer').textContent = `${Math.floor(tm / 60)}:${String(Math.floor(tm % 60)).padStart(2, '0')}`;
