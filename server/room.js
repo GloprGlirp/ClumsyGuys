@@ -272,12 +272,18 @@ export class Room {
     this.phase = 'results';
     const isFinal = type === 'final';
     const remaining = this.participants().filter((e) => e.status === 'qualified');
-    const over = isFinal || remaining.length === 0 || (!this.solo && remaining.length <= 1) || (this.solo && this.plan.length === 0);
+    let over = isFinal || remaining.length === 0 || (!this.solo && remaining.length <= 1) || (this.solo && this.plan.length === 0);
+    let winners = remaining;
+    if (!over && !remaining.some((e) => !e.bot)) {
+      // Keine Menschen mehr im Spiel: Show abkürzen, ein Bot gewinnt
+      over = true;
+      winners = [remaining[Math.floor(Math.random() * remaining.length)]];
+    }
     this.emit('roundEnd', { qualified: r.qualified, eliminated: r.eliminated, final: isFinal, over });
     this.broadcastRoom();
     this.timer = setTimeout(() => {
       if (this.dead) return;
-      if (over) this.gameOver(remaining);
+      if (over) this.gameOver(winners);
       else this.nextRound();
     }, RESULTS_MS);
   }
@@ -307,9 +313,10 @@ export class Room {
     if (this.phase === 'playing' && this.def.type !== 'race' && s[1] < this.def.killY - 3) this.eliminate(p);
   }
 
-  onFinish(id) {
+  onFinish(id, pos) {
     const p = this.humans.get(id);
     if (!p || this.phase !== 'playing' || this.def.type !== 'race') return;
+    if (Array.isArray(pos) && pos.length >= 5) this.onState(id, pos);
     if (!p.st || p.st[2] < this.def.finishZ - 8) return;
     if (this.roundTime() < 8) return;
     this.qualify(p);

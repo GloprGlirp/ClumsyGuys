@@ -651,7 +651,7 @@ function physicsStep() {
   }
   if (def.type === 'race' && !S.finishSent && me.z >= def.finishZ && me.y >= def.finishY && S.simT > 0) {
     S.finishSent = true;
-    socket.emit('finish');
+    socket.emit('finish', [me.x, me.y, me.z, me.yaw, animOf(me)]);
     bigMsg('IM ZIEL!', 'q', '', 1500);
     setTimeout(() => { if (S.active && S.finishSent) goSpectate(); }, 1500);
   }
@@ -819,5 +819,4 @@ rebuildShowroom();
 toMenu();
 openLookEditor(false);
 $('customPanel').classList.remove('hidden');
-window.__cg = S;
 frame();
