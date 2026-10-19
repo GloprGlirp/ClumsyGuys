@@ -420,6 +420,14 @@ export class Character {
         rootX = -0.25 + Math.sin(t * 22) * 0.06;
         aLx = -0.6; aRx = -0.6; aLz = 0.6; aRz = -0.6;
         break;
+      case 10: // schubsen
+        aLx = -1.7; aRx = -1.7; aLz = -0.25; aRz = 0.25; rootX = 0.3;
+        break;
+      case 11: { // festhalten (Beine laufen weiter, wenn man sich bewegt)
+        aLx = -1.45; aRx = -1.45; aLz = -0.2; aRz = 0.2; rootX = -0.12;
+        if (speed > 0.15) { const w = t * 10; lLx = Math.sin(w) * 0.7; lRx = -lLx; bob = Math.abs(Math.sin(w)) * 0.05; }
+        break;
+      }
       default:
         bob = Math.sin(t * 2.5) * 0.015;
         aLz = 0.15 + Math.sin(t * 2.5) * 0.04; aRz = -aLz;

@@ -139,6 +139,8 @@ input[type='range'] { padding: 0; border: none; accent-color: var(--pink); }
 .tbtn { position: absolute; pointer-events: auto; border: none; border-radius: 50%; width: 70px; height: 70px; font-size: 30px; background: rgba(255, 255, 255, 0.85); box-shadow: var(--shadow); color: var(--ink); font-family: 'Titan One'; }
 .tbtn.big { width: 92px; height: 92px; right: 26px; bottom: 90px; font-size: 40px; background: var(--yellow); }
 #btnDive { right: 130px; bottom: 70px; }
+#btnPush { right: 130px; bottom: 156px; width: 60px; height: 60px; font-size: 26px; }
+#btnGrab { right: 40px; bottom: 200px; width: 60px; height: 60px; font-size: 26px; }
 .tbtn.small { width: 50px; height: 50px; font-size: 22px; left: 16px; top: 16px; }
 
 @keyframes pop { from { transform: scale(0.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }

@@ -8,6 +8,8 @@ export class Input {
     this.zoom = 9;
     this.jumpPressed = false;
     this.divePressed = false;
+    this.pushPressed = false;
+    this.touchGrab = false;
     this.enabled = true;
     this.touch = { active: false, x: 0, y: 0, id: null, camId: null, lx: 0, ly: 0 };
     this.joy = { x: 0, y: 0 };
@@ -17,7 +19,8 @@ export class Input {
     addEventListener('keydown', (e) => {
       if (!this.enabled || e.target.tagName === 'INPUT') return;
       if (e.code === 'Space') { if (!e.repeat) this.jumpPressed = true; e.preventDefault(); }
-      if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'KeyE') && !e.repeat) this.divePressed = true;
+      if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) this.divePressed = true;
+      if (e.code === 'KeyE' && !e.repeat) this.pushPressed = true;
       if (/^Digit[1-4]$/.test(e.code) && this.onEmote) this.onEmote(+e.code.slice(5));
       this.keys.add(e.code);
     });
@@ -94,7 +97,16 @@ export class Input {
     this.canvas.addEventListener('touchcancel', onEnd);
     document.getElementById('btnJump').addEventListener('touchstart', (e) => { this.jumpPressed = true; e.preventDefault(); });
     document.getElementById('btnDive').addEventListener('touchstart', (e) => { this.divePressed = true; e.preventDefault(); });
+    document.getElementById('btnPush').addEventListener('touchstart', (e) => { this.pushPressed = true; e.preventDefault(); });
+    const g = document.getElementById('btnGrab');
+    g.addEventListener('touchstart', (e) => { this.touchGrab = true; e.preventDefault(); });
+    g.addEventListener('touchend', () => { this.touchGrab = false; });
+    g.addEventListener('touchcancel', () => { this.touchGrab = false; });
   }
+
+  grabHeld() { return this.enabled && (this.keys.has('KeyF') || this.touchGrab); }
+
+  takePush() { const p = this.enabled && this.pushPressed; this.pushPressed = false; return p; }
 
   // Bewegungsrichtung in Weltkoordinaten (relativ zur Kamera)
   read() {

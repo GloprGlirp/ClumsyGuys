@@ -18,7 +18,10 @@ export const PHYS = {
   jumpBuffer: 0.13,
 };
 
-export const ANIMS = ['idle', 'run', 'jump', 'fall', 'dive', 'stun', 'emote1', 'emote2', 'emote3', 'emote4'];
+export const ANIMS = ['idle', 'run', 'jump', 'fall', 'dive', 'stun', 'emote1', 'emote2', 'emote3', 'emote4', 'push', 'grab'];
+
+// Schubsen & Festhalten
+export const GRAB = { pushRange: 1.8, grabRange: 1.6, pushCd: 0.8, grabMax: 2.5, grabCd: 1.0, holdSpeed: 0.6, heldSpeed: 0.3, tether: 1.25 };
 
 const CELL = 6;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -210,7 +213,7 @@ export function newPlayer(x = 0, y = 0, z = 0, yaw = 0) {
   return {
     x, y, z, vx: 0, vy: 0, vz: 0, yaw,
     grounded: false, ground: null, coyote: 0, jumpBuf: 0,
-    dive: 0, diveCd: 0, stun: 0, bumpCd: 0, airT: 0, emote: 0, emoteT: 0,
+    dive: 0, diveCd: 0, stun: 0, bumpCd: 0, airT: 0, emote: 0, emoteT: 0, pushT: 0, grabbing: false,
     events: [],
   };
 }
@@ -253,6 +256,7 @@ export function stepPlayer(p, inp, world, dt) {
   p.dive = Math.max(0, p.dive - dt);
   p.diveCd = Math.max(0, p.diveCd - dt);
   p.bumpCd = Math.max(0, p.bumpCd - dt);
+  p.pushT = Math.max(0, (p.pushT || 0) - dt);
   p.jumpBuf = Math.max(0, p.jumpBuf - dt);
   p.coyote = wasGrounded ? PHYS.coyote : Math.max(0, p.coyote - dt);
   if (p.emote) { p.emoteT -= dt; if (p.emoteT <= 0) p.emote = 0; }
@@ -265,7 +269,8 @@ export function stepPlayer(p, inp, world, dt) {
   // Horizontale Bewegung
   const control = p.dive > 0 ? 0 : p.stun > 0 ? 0.12 : 1;
   if (control > 0) {
-    const tx = mx * PHYS.speed, tz = mz * PHYS.speed;
+    const sm = inp.speedMul ?? 1;
+    const tx = mx * PHYS.speed * sm, tz = mz * PHYS.speed * sm;
     const rate = (wasGrounded ? PHYS.accel : PHYS.airAccel) * control * dt;
     if (wasGrounded || ml > 0.1) {
       let dvx = tx - p.vx, dvz = tz - p.vz;
@@ -288,7 +293,7 @@ export function stepPlayer(p, inp, world, dt) {
 
   // Springen
   if (inp.jump) p.jumpBuf = PHYS.jumpBuffer;
-  if (p.jumpBuf > 0 && (wasGrounded || p.coyote > 0) && p.dive <= 0 && p.stun < 0.2) {
+  if (p.jumpBuf > 0 && !inp.noJump && (wasGrounded || p.coyote > 0) && p.dive <= 0 && p.stun < 0.2) {
     p.vy = PHYS.jumpVel;
     p.jumpBuf = 0; p.coyote = 0;
     p.grounded = false; p.ground = null;
@@ -296,7 +301,7 @@ export function stepPlayer(p, inp, world, dt) {
   }
 
   // Hechtsprung
-  if (inp.dive && p.dive <= 0 && p.diveCd <= 0 && p.stun <= 0) {
+  if (inp.dive && !inp.noJump && p.dive <= 0 && p.diveCd <= 0 && p.stun <= 0) {
     let dx = mx, dz = mz;
     if (ml < 0.1) { dx = Math.sin(p.yaw); dz = Math.cos(p.yaw); }
     else { const l = Math.hypot(dx, dz); dx /= l; dz /= l; p.yaw = Math.atan2(dx, dz); }
@@ -529,8 +534,46 @@ export function pushApart(p, ox, oy, oz, strength = 1) {
 export function animOf(p) {
   if (p.dive > 0) return 4;
   if (p.stun > 0) return 5;
+  if (p.pushT > 0) return 10;
+  if (p.grabbing) return 11;
   if (!p.grounded) return p.vy > 0 ? 2 : 3;
   if (Math.hypot(p.vx, p.vz) > 1.2) return 1;
   if (p.emote) return 5 + p.emote;
   return 0;
+}
+
+// Wird geschubst: Impuls in Richtung (dx,dz)
+export function applyPush(p, dx, dz, strength = 9) {
+  const l = Math.hypot(dx, dz) || 1;
+  p.vx = (dx / l) * strength;
+  p.vz = (dz / l) * strength;
+  p.vy = Math.max(p.vy, 4.5);
+  p.stun = 0.5;
+  p.dive = 0;
+  p.grounded = false;
+  p.ground = null;
+}
+
+// Festgehalten: sanft zum Festhalter ziehen
+export function tether(p, gx, gz, dt) {
+  const dx = gx - p.x, dz = gz - p.z;
+  const d = Math.hypot(dx, dz);
+  if (d <= GRAB.tether || d > 4) return;
+  const k = Math.min(1, (d - GRAB.tether) * 10 * dt);
+  p.x += (dx / d) * (d - GRAB.tether) * k;
+  p.z += (dz / d) * (d - GRAB.tether) * k;
+}
+
+// Bester Gegner vor dem Spieler (für Schubsen/Festhalten)
+export function pickFront(p, others, range) {
+  const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
+  let best = null, bd = Infinity;
+  for (const o of others) {
+    const dx = o.x - p.x, dz = o.z - p.z, dy = o.y - p.y;
+    const d = Math.hypot(dx, dz);
+    if (d > range || Math.abs(dy) > 1.5 || d < 1e-3) continue;
+    if ((dx * fx + dz * fz) / d < 0.35) continue;
+    if (d < bd) { bd = d; best = o; }
+  }
+  return best;
 }

@@ -92,6 +92,8 @@ io.on('connection', (socket) => {
   socket.on('fell', () => room()?.onFell(socket.id));
   socket.on('tile', (id) => room()?.onTile(socket.id, id));
   socket.on('emote', (n) => room()?.onEmote(socket.id, n));
+  socket.on('push', (t) => room()?.onPush(socket.id, t));
+  socket.on('grab', (t) => room()?.onGrab(socket.id, t));
   socket.on('tping', (_t, cb) => typeof cb === 'function' && cb(Date.now()));
   socket.on('disconnect', () => leaveCurrent(socket));
 });

@@ -1,4 +1,4 @@
-import { World, newPlayer, stepPlayer, resetPlayer, pushApart, animOf } from '../shared/physics.js';
+import { World, newPlayer, stepPlayer, resetPlayer, pushApart, animOf, applyPush, tether, pickFront, GRAB } from '../shared/physics.js';
 import { buildMap, MAPS, RACES, SURVIVALS, FINALS, checkpointIndex } from '../shared/maps.js';
 import { mulberry32, shuffle } from '../shared/rng.js';
 import { randomLook, sanitizeLook } from '../shared/looks.js';
@@ -24,6 +24,8 @@ export class Room {
     this.hostId = null;
     this.settings = { bots: isPublic ? 12 : 8 };
     this.chatLog = [];
+    this.grabs = new Map(); // Festhalter-ID -> { target, until }
+    this.pushCd = new Map();
     this.autoStartAt = 0;
     this.toLobby();
   }
@@ -56,6 +58,8 @@ export class Room {
     const p = this.humans.get(id);
     if (!p) return;
     this.humans.delete(id);
+    this.releaseGrab(id);
+    for (const [g, v] of this.grabs) if (v.target === id) this.releaseGrab(g);
     p.socket.leave(this.channel);
     p.socket.data.room = null;
     if (this.hostId === id) this.hostId = this.humans.keys().next().value || null;
@@ -119,6 +123,7 @@ export class Room {
   // ---------------------------------------------------------------- Phasen
   toLobby() {
     clearTimeout(this.timer);
+    this.clearGrabs();
     this.phase = 'lobby';
     this.bots.clear();
     for (const p of this.humans.values()) { p.status = 'lobby'; p.st = null; }
@@ -177,6 +182,7 @@ export class Room {
   }
 
   nextRound() {
+    this.clearGrabs();
     const alive = this.participants();
     for (const e of alive) e.status = 'playing';
     let mapId = this.plan.shift();
@@ -237,6 +243,7 @@ export class Room {
   endRound(reason) {
     if (this.round.ended) return;
     this.round.ended = true;
+    this.clearGrabs();
     const type = this.def.type;
     const r = this.round;
     const playing = this.participants().filter((e) => e.status === 'playing');
@@ -341,6 +348,67 @@ export class Room {
     }
   }
 
+  // ---------------------------------------------------------------- Schubsen & Festhalten
+  canInteract() { return this.phase === 'lobby' || this.phase === 'playing'; }
+
+  entOf(id) {
+    const h = this.humans.get(id);
+    if (h) return (h.status === 'playing' || h.status === 'lobby') && h.st ? { e: h, x: h.st[0], y: h.st[1], z: h.st[2] } : null;
+    const b = this.bots.get(id);
+    if (b && b.status === 'playing') return { e: b, x: b.p.x, y: b.p.y, z: b.p.z };
+    return null;
+  }
+
+  doPush(fromId, fx, fz, targetId) {
+    const t = this.entOf(targetId);
+    if (!t) return;
+    const dx = t.x - fx, dz = t.z - fz;
+    if (t.e.bot) applyPush(t.e.p, dx, dz);
+    else t.e.socket.emit('pushed', { by: fromId, dx, dz });
+    this.emit('shove', { from: fromId, to: targetId });
+  }
+
+  onPush(id, targetId) {
+    if (!this.canInteract()) return;
+    const a = this.entOf(id);
+    if (!a || targetId === id) return;
+    const now = Date.now();
+    if ((this.pushCd.get(id) || 0) > now) return;
+    const t = this.entOf(String(targetId));
+    if (!t || Math.hypot(t.x - a.x, t.z - a.z) > GRAB.pushRange + 1.2) return;
+    this.pushCd.set(id, now + GRAB.pushCd * 900);
+    this.doPush(id, a.x, a.z, t.e.id);
+  }
+
+  onGrab(id, targetId) {
+    if (targetId == null) return this.releaseGrab(id);
+    if (!this.canInteract() || this.grabs.has(id)) return;
+    const a = this.entOf(id), t = this.entOf(String(targetId));
+    if (!a || !t || t.e.id === id) return;
+    if (Math.hypot(t.x - a.x, t.z - a.z) > GRAB.grabRange + 1.2) { a.e.socket?.emit('grabEnd', {}); return; }
+    this.grabs.set(id, { target: t.e.id, until: Date.now() + GRAB.grabMax * 1000 });
+    if (!t.e.bot) t.e.socket.emit('grabbed', { by: id, on: true });
+  }
+
+  releaseGrab(id) {
+    const g = this.grabs.get(id);
+    if (!g) return;
+    this.grabs.delete(id);
+    const t = this.humans.get(g.target);
+    if (t) t.socket.emit('grabbed', { by: id, on: false });
+    const h = this.humans.get(id);
+    if (h) h.socket.emit('grabEnd', {});
+  }
+
+  clearGrabs() {
+    for (const id of [...(this.grabs?.keys() || [])]) this.releaseGrab(id);
+  }
+
+  heldBy(targetId) {
+    for (const [g, v] of this.grabs) if (v.target === targetId) return g;
+    return null;
+  }
+
   onEmote(id, n) {
     const p = this.humans.get(id);
     if (!p) return;
@@ -352,6 +420,7 @@ export class Room {
   // ---------------------------------------------------------------- Simulation
   tick() {
     const now = Date.now();
+    for (const [g, v] of this.grabs) if (v.until < now || !this.entOf(g) || !this.entOf(v.target)) this.releaseGrab(g);
     if (this.phase === 'lobby' && this.autoStartAt && now >= this.autoStartAt) { this.startGame(null); return; }
     if (this.phase === 'intro' && now >= this.startAt) { this.phase = 'playing'; this.broadcastRoom(); }
 
@@ -379,7 +448,22 @@ export class Room {
     const bots = [...this.bots.values()].filter((b) => b.status === 'playing');
     for (const b of bots) {
       const inp = active ? botInput(b, this.world, def, t, DT) : { mx: 0, mz: 0 };
+      const holder = this.heldBy(b.id);
+      const hp = holder && this.entOf(holder);
+      if (hp) { inp.speedMul = GRAB.heldSpeed; inp.noJump = true; }
       stepPlayer(b.p, inp, this.world, DT);
+      if (hp) tether(b.p, hp.x, hp.z, DT);
+      // Bots schubsen ab und zu
+      b.ai.pushCd = Math.max(0, (b.ai.pushCd || 0) - DT);
+      if (active && b.ai.pushCd <= 0 && b.p.stun <= 0 && b.ai.rnd() < 0.006) {
+        const others = [...humans.map((h) => ({ id: h.id, x: h.st[0], y: h.st[1], z: h.st[2] })), ...bots.filter((o) => o !== b).map((o) => ({ id: o.id, x: o.p.x, y: o.p.y, z: o.p.z }))];
+        const tgt = pickFront(b.p, others, GRAB.pushRange * 0.85);
+        if (tgt) {
+          b.p.pushT = 0.3;
+          b.ai.pushCd = 3 + b.ai.rnd() * 4;
+          this.doPush(b.id, b.p.x, b.p.z, tgt.id);
+        }
+      }
       for (const ev of b.p.events) {
         if (ev.startsWith('tile:') && def.touchTiles && active) this.touch(ev.slice(5), t);
       }

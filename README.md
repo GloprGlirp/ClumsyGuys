@@ -6,6 +6,7 @@ Tollpatschiges Multiplayer-Party-Spiel im Browser – inspiriert von Fall Guys. 
 
 - **Echtzeit-Multiplayer** über Socket.IO – private Räume mit 4-stelligem Code / Einladungslink oder „Schnell spielen“ in öffentlichen Räumen
 - **Bots** füllen die Runde auf (Host stellt die Anzahl ein) – sie benutzen dieselbe Physik wie du
+- **Schubsen & Festhalten** wie bei Fall Guys – Bots schubsen auch zurück 😈
 - **Chat** mit Sprechblasen über den Köpfen + Emotes (👋 💃 🎉 😂)
 - **Charakter-Anpassung**: Farben (inkl. freier Farbwahl), 7 Muster, 6 Augen-Stile, 10 Hüte, 6 Extras – wird im Browser gespeichert
 - **4 Level** in einer Show aus mehreren Runden:
@@ -22,7 +23,9 @@ Tollpatschiges Multiplayer-Party-Spiel im Browser – inspiriert von Fall Guys. 
 |---|---|
 | WASD / Pfeile | Laufen |
 | Leertaste | Springen |
-| Shift / E | Hechtsprung |
+| Shift | Hechtsprung |
+| E | Schubsen |
+| F (halten) | Festhalten – bremst den anderen und zieht ihn mit |
 | Maus (Klick für Maus-Fang) | Kamera |
 | Mausrad | Zoom |
 | Enter / T | Chat |

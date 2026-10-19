@@ -5,7 +5,7 @@ import { Character } from './character.js';
 import { Level } from './level.js';
 import { Input } from './input.js';
 import { sfx, toggleMute, isMuted, unlockAudio } from './audio.js';
-import { World, newPlayer, stepPlayer, resetPlayer, pushApart, animOf } from '/shared/physics.js';
+import { World, newPlayer, stepPlayer, resetPlayer, pushApart, animOf, applyPush, tether, pickFront, GRAB } from '/shared/physics.js';
 import { buildMap, MAPS, checkpointIndex } from '/shared/maps.js';
 import { COLORS, PATTERNS, EYES, HATS, ACCS, sanitizeLook, randomLook, sanitizeName } from '/shared/looks.js';
 
@@ -70,6 +70,7 @@ const S = {
   winners: new Set(),
   showroom: null,
   editingLook: false,
+  pushCd: 0, grabCd: 0, grab: null, heldBy: null, heldUntil: 0,
 };
 
 function roundTime() { return (now() - S.startAt) / 1000; }
@@ -597,6 +598,84 @@ function nextSpectate() {
 canvas.addEventListener('click', () => { if (S.mode === 'room' && !S.active && inGame()) nextSpectate(); });
 addEventListener('keydown', (e) => { if (e.code === 'Space' && S.mode === 'room' && !S.active && inGame() && e.target.tagName !== 'INPUT') nextSpectate(); });
 
+// ------------------------------------------------------------------ Schubsen (E) & Festhalten (F)
+function entPos(id) {
+  const e = S.ents.get(id);
+  if (!e || !e.char.group.visible) return null;
+  return sampleEnt(e, now() - INTERP_MS);
+}
+
+function interactables() {
+  const out = [];
+  for (const e of S.ents.values()) {
+    if (!e.char.group.visible) continue;
+    const st = S.status.get(e.id);
+    if (st !== 'playing' && st !== 'lobby') continue;
+    const s = sampleEnt(e, now() - INTERP_MS);
+    if (s) out.push({ id: e.id, x: s.x, y: s.y, z: s.z });
+  }
+  return out;
+}
+
+function releaseMyGrab(tell = true) {
+  if (!S.grab) return;
+  if (tell) socket.emit('grab', null);
+  S.grab = null;
+  S.grabCd = GRAB.grabCd;
+}
+
+function handleHands(me, inp, frozen) {
+  const canAct = !frozen && S.roomPhase !== 'results' && S.roomPhase !== 'gameover';
+  S.pushCd = Math.max(0, S.pushCd - DT);
+  S.grabCd = Math.max(0, S.grabCd - DT);
+  if (S.heldBy && performance.now() > S.heldUntil) S.heldBy = null;
+
+  if (input.takePush() && canAct && S.pushCd <= 0 && me.stun <= 0 && me.dive <= 0) {
+    S.pushCd = GRAB.pushCd;
+    me.pushT = 0.3;
+    releaseMyGrab();
+    const t = pickFront(me, interactables(), GRAB.pushRange);
+    if (t) { socket.emit('push', t.id); S.ents.get(t.id)?.char.hit(); sfx.bump(); }
+    else sfx.whoosh();
+  }
+
+  const holding = input.grabHeld() && canAct && me.stun <= 0;
+  if (S.grab) {
+    const g = entPos(S.grab.target);
+    const tooFar = !g || Math.hypot(g.x - me.x, g.z - me.z) > 3.2;
+    if (!holding || tooFar || performance.now() - S.grab.start > GRAB.grabMax * 1000) releaseMyGrab();
+  } else if (holding && S.grabCd <= 0) {
+    const t = pickFront(me, interactables(), GRAB.grabRange);
+    if (t) {
+      S.grab = { target: t.id, start: performance.now() };
+      socket.emit('grab', t.id);
+      sfx.grab();
+    }
+  }
+  me.grabbing = holding;
+  if (S.heldBy) { inp.speedMul = GRAB.heldSpeed; inp.noJump = true; }
+  else if (S.grab) inp.speedMul = GRAB.holdSpeed;
+}
+
+socket.on('pushed', ({ dx, dz }) => {
+  if (!S.active) return;
+  applyPush(S.me, dx, dz);
+  releaseMyGrab();
+  S.meChar?.hit();
+  sfx.bump();
+});
+socket.on('grabbed', ({ by, on }) => {
+  if (on) {
+    S.heldBy = by;
+    S.heldUntil = performance.now() + GRAB.grabMax * 1000 + 500;
+    if (S.active) bigMsg('GEPACKT!', 'y', `${nameOf(by)} hält dich fest`, 1000);
+  } else if (S.heldBy === by) S.heldBy = null;
+});
+socket.on('grabEnd', () => releaseMyGrab(false));
+socket.on('shove', ({ from, to }) => {
+  if (to !== S.myId) S.ents.get(to)?.char.hit();
+});
+
 // ------------------------------------------------------------------ Physik-Schritt
 function physicsStep() {
   const t = roundTime();
@@ -609,7 +688,12 @@ function physicsStep() {
   S.prev.x = me.x; S.prev.y = me.y; S.prev.z = me.z; S.prev.yaw = me.yaw;
   const frozen = inGame() && (S.simT < 0 || S.roomPhase === 'results');
   const inp = frozen ? (input.read(), { mx: 0, mz: 0 }) : input.read();
+  handleHands(me, inp, frozen);
   stepPlayer(me, inp, world, DT);
+  if (S.heldBy) {
+    const g = entPos(S.heldBy);
+    if (g) tether(me, g.x, g.z, DT);
+  }
   for (const ev of me.events) {
     if (ev === 'jump') sfx.jump();
     else if (ev === 'dive') sfx.dive();
