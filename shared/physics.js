@@ -356,6 +356,17 @@ function landTol(p, c, dt) {
   return Math.max(PHYS.step, -p.vy * dt + 0.08 + Math.max(0, c.cy - c.py));
 }
 
+// Rutschige Oberseite: man kann dort nicht stehen und nicht abspringen
+function slideOff(p, c, top, nx, nz) {
+  p.y = top;
+  if (p.vy < 0) p.vy = 0;
+  const l = Math.hypot(nx, nz);
+  if (l < 0.05) { nx = Math.sin(p.yaw); nz = Math.cos(p.yaw); } else { nx /= l; nz /= l; }
+  p.vx = nx * 7; p.vz = nz * 7;
+  p.x += nx * 0.05; p.z += nz * 0.05;
+  return null;
+}
+
 function land(p, c, top) {
   p.y = top;
   if (c.pad) {
@@ -414,7 +425,15 @@ function colBox(p, c, world, dt) {
   const ddx = lx - qx, ddz = lz - qz;
   const d2 = ddx * ddx + ddz * ddz;
   if (d2 >= R * R) return null;
-  if (top - p.y <= landTol(p, c, dt)) return land(p, c, top);
+  if (top - p.y <= landTol(p, c, dt)) {
+    if (c.noStand) {
+      // entlang der kurzen Achse runterschubsen
+      const cs = Math.cos(c.cyaw), sn = Math.sin(c.cyaw);
+      const ax = c.hx < c.hz ? (Math.sign(lx) || 1) : 0, az = c.hx < c.hz ? 0 : (Math.sign(lz) || 1);
+      return slideOff(p, c, top, ax * cs + az * sn, -ax * sn + az * cs);
+    }
+    return land(p, c, top);
+  }
   if (p.vy > 0 && p.y + H - bot < 0.45 && d2 < 0.01) { headHit(p, c, world, bot); return null; }
   let nx, nz, push;
   if (d2 > 1e-9) {
@@ -437,7 +456,7 @@ function colCyl(p, c, world, dt) {
   const dx = p.x - c.cx, dz = p.z - c.cz;
   const d2 = dx * dx + dz * dz, rr = R + c.r;
   if (d2 >= rr * rr) return null;
-  if (top - p.y <= landTol(p, c, dt)) return land(p, c, top);
+  if (top - p.y <= landTol(p, c, dt)) return c.noStand ? slideOff(p, c, top, dx, dz) : land(p, c, top);
   const d = Math.sqrt(d2);
   if (p.vy > 0 && p.y + H - bot < 0.45 && d < c.r) { headHit(p, c, world, bot); return null; }
   const nx = d > 1e-6 ? dx / d : 0, nz = d > 1e-6 ? dz / d : 1;

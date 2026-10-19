@@ -80,6 +80,28 @@ function simulate(mapId, seed, nBots, seconds) {
   if (s.y <= 3) failed = true;
 }
 
+// Keine sicheren Verstecke: auf Säule/Balken darf man nicht stehen bleiben
+{
+  for (const [name, x, y, z] of [['Säule', 0, 7, 0], ['oberer Balken', 0, 4, 6], ['unterer Balken', 6, 2, 0]]) {
+    const w = new World(buildMap('schwingscheibe', 1));
+    const p = newPlayer(x, y, z);
+    let onIt = 0;
+    for (let i = 0; i < 180; i++) {
+      w.update(i * DT);
+      stepPlayer(p, { mx: 0, mz: 0, jump: i % 20 === 0 }, w, DT);
+      if (p.grounded && p.ground && p.ground.kind !== 'tile') onIt++;
+    }
+    const ok = onIt === 0;
+    console.log(`Kein Stehen auf ${name}:`, ok ? 'OK' : `FEHLER (${onIt} Frames)`);
+    if (!ok) failed = true;
+  }
+  // Höchster erreichbarer Punkt im Finale = oberste Wabenebene
+  const def = buildMap('wabenfall', 1);
+  const above = def.colliders.filter((c) => c.y + (c.h || c.hy || 0) > 0.01);
+  console.log('Wabenfall – Kollider über der obersten Ebene:', above.length === 0 ? 'keine (OK)' : above.length);
+  if (above.length) failed = true;
+}
+
 for (const seed of [11, 22]) {
   simulate('wackelweg', seed, 20, 150);
   simulate('kreiselchaos', seed, 20, 150);

@@ -240,9 +240,9 @@ function buildSchwingscheibe(seed) {
     }
   const order = shuffle(tiles.filter((c) => Math.hypot(c.x, c.z) > 3), rnd);
   order.forEach((c, i) => { c.fallAt = 18 + i * 1.8 + 1.5; });
-  m.cyl(0, 1.5, 0, 1.5, 3, { kind: 'post' });
-  m.box(0, 0.55, 0, 31, 0.7, 0.9, { kind: 'sweeper', bounce: 6, move: (t, o) => { const tt = Math.max(0, t); o.yaw = 0.75 * tt + 0.006 * tt * tt; } });
-  m.box(0, 2.35, 0, 31, 1.0, 0.9, { kind: 'sweeper', bounce: 7, move: (t, o) => { const tt = Math.max(0, t); o.yaw = -(0.45 * tt + 0.004 * tt * tt) + Math.PI / 2; } });
+  m.cyl(0, 3, 0, 1.5, 6, { kind: 'post', noStand: true });
+  m.box(0, 0.55, 0, 31, 0.7, 0.9, { kind: 'sweeper', bounce: 6, noStand: true, move: (t, o) => { const tt = Math.max(0, t); o.yaw = 0.75 * tt + 0.006 * tt * tt; } });
+  m.box(0, 2.35, 0, 31, 1.0, 0.9, { kind: 'sweeper', bounce: 7, noStand: true, move: (t, o) => { const tt = Math.max(0, t); o.yaw = -(0.45 * tt + 0.004 * tt * tt) + Math.PI / 2; } });
   return { colliders: m.cols, spawns: ringSpawns(24, 9), decor: [], tileWarn: 1.5 };
 }
 
